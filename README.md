@@ -3,7 +3,7 @@
 Production-ready Telegram earning bot with:
 
 - Telegraf bot flows for tasks, referrals, wallet, and withdrawals
-- Express admin API and React admin dashboard in one deployable service
+- Express admin API and React admin dashboard
 - Firebase Firestore transaction-safe wallet ledger
 - Manual withdrawal approval flow
 - Referral rewards triggered on the referred user's first completed task
@@ -14,7 +14,7 @@ Production-ready Telegram earning bot with:
 - Bot: Telegraf
 - Database: Firebase Firestore via Admin SDK
 - Admin UI: React + Vite
-- Deployment: Render, Railway, Docker, VPS
+- Hosting: Railway for backend, Firebase Hosting for admin, Docker-compatible
 
 ## Project Structure
 
@@ -22,17 +22,18 @@ Production-ready Telegram earning bot with:
 admin/   React admin dashboard
 server/  Express API, Telegram webhook, Firestore services
 shared/  Shared constants, types, formatters, validators
+scripts/ PowerShell automation helpers for GitHub, Railway, and Firebase Hosting
 ```
 
 ## Core Features
 
 - Auto-register users from Telegram ID
-- Reward users `₹10` per task by default
-- Reward referrers `₹5` when invited users complete their first task
-- Minimum withdrawal of `₹30`
+- Reward users `INR 10` per task by default
+- Reward referrers `INR 5` when invited users complete their first task
+- Minimum withdrawal of `INR 30`
 - Each task can only be completed once per user
 - Task verification cooldown to reduce instant abuse
-- Admin task CRUD, user lookup, referral ledger, withdrawal approval and rejection
+- Admin task CRUD, user lookup, referral ledger, and withdrawal approval or rejection
 - Immutable wallet transactions for every balance mutation
 
 ## Environment Setup
@@ -40,7 +41,7 @@ shared/  Shared constants, types, formatters, validators
 1. Copy `.env.example` to `.env`.
 2. Fill in your Telegram bot values:
    `BOT_TOKEN`, `BOT_USERNAME`, `WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET`
-3. Fill in Firebase service account values:
+3. Fill in Firebase Admin service-account values:
    `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
 4. Generate an admin password hash:
 
@@ -50,6 +51,7 @@ node -e "const bcrypt=require('bcryptjs'); bcrypt.hash(process.argv[1], 12).then
 
 5. Put the hash into `ADMIN_PASSWORD_HASH`.
 6. Set a long random `SESSION_SECRET`.
+7. If the admin panel is hosted separately on Firebase Hosting, set `ADMIN_ORIGIN` to that public admin URL.
 
 ## Local Development
 
@@ -65,11 +67,6 @@ Run the full workspace in development mode:
 npm run dev
 ```
 
-Important:
-
-- Telegram webhooks require a public HTTPS URL.
-- For local bot testing, expose your local server with a tunnel such as `ngrok` or `cloudflared`, then set `WEBHOOK_BASE_URL` to that public URL.
-
 Useful commands:
 
 ```bash
@@ -77,6 +74,27 @@ npm run typecheck
 npm run test
 npm run build
 npm run start
+```
+
+Important:
+
+- Telegram webhooks require a public HTTPS URL.
+- For local bot testing, expose your local server with a tunnel such as `ngrok` or `cloudflared`, then set `WEBHOOK_BASE_URL` to that public URL.
+
+## Deployment Scripts
+
+Ready-to-run PowerShell helpers live in `scripts/`:
+
+- `scripts/github-publish.ps1` creates or reuses the GitHub repo and pushes `main`
+- `scripts/railway-deploy.ps1` creates or links a Railway project, sets variables, and deploys the backend
+- `scripts/firebase-hosting-deploy.ps1` builds the admin app and deploys it to Firebase Hosting
+
+Examples:
+
+```powershell
+.\scripts\github-publish.ps1 -GitHubOwner raodevlopers -RepoName telegram-earning-bot
+.\scripts\railway-deploy.ps1 -ProjectName telegram-earning-bot -ServiceName bot-backend
+.\scripts\firebase-hosting-deploy.ps1 -ProjectId hybrid-engineer -ApiBaseUrl https://your-railway-app.up.railway.app
 ```
 
 ## Firebase Notes
@@ -109,49 +127,46 @@ Recommended Firestore setup:
 
 ## Admin Dashboard
 
-The admin dashboard is served by the same Express app.
+The admin dashboard can run in two modes:
+
+- Same-origin from the Express backend
+- Separate Firebase Hosting deployment using `VITE_API_BASE_URL` and credentialed CORS back to Railway
 
 Available admin capabilities:
 
-- Password login via secure cookie session
-- Create, edit, pause, and delete tasks
-- Review user balances, risks, and wallet activity
-- Approve or reject withdrawals
-- Inspect referral reward status
+- Password login
+- Task creation, editing, pausing, and deletion
+- User balance and risk review
+- Referral inspection
+- Withdrawal approval and rejection
 
 ## Deployment
 
-### Render
+### Railway Backend
 
-1. Create a new Web Service from this repo.
-2. Use the provided `Dockerfile`.
-3. Add all environment variables from `.env.example`.
-4. Set `WEBHOOK_BASE_URL` to your Render service URL.
-5. Deploy. On startup, the app registers the Telegram webhook automatically.
+1. Authenticate with Railway CLI using `railway login`.
+2. Ensure `.env` contains real Firebase Admin credentials. The Firebase web config alone is not enough for the backend.
+3. Run `.\scripts\railway-deploy.ps1`.
+4. Confirm the generated Railway domain is the same one stored in `WEBHOOK_BASE_URL`.
+5. Open `/health` on the deployed backend.
 
-### Railway
+### Firebase Hosting Admin
 
-1. Create a new project from the repo.
-2. Railway will detect the Dockerfile or you can run the standard Node build.
-3. Add the same environment variables.
-4. Set `WEBHOOK_BASE_URL` to the Railway public domain.
-5. Deploy and verify `/health`.
+1. Authenticate with Firebase CLI.
+2. Run `.\scripts\firebase-hosting-deploy.ps1 -ProjectId hybrid-engineer -ApiBaseUrl https://your-railway-app.up.railway.app`.
+3. Use the returned Hosting URL as `ADMIN_ORIGIN` in the Railway backend.
 
-### VPS
+### GitHub Publish
 
-1. Install Node 20 or run the app with Docker.
-2. Clone the repo and run `npm install`.
-3. Run `npm run build`.
-4. Start with `npm run start` behind Nginx or Caddy.
-5. Terminate HTTPS at the reverse proxy.
-6. Set `WEBHOOK_BASE_URL` to the public HTTPS domain.
+1. Authenticate with GitHub CLI using `gh auth login --web --git-protocol https`.
+2. Run `.\scripts\github-publish.ps1 -GitHubOwner raodevlopers -RepoName telegram-earning-bot`.
 
 ## Production Checklist
 
-- Use a real HTTPS domain
+- Use a real HTTPS Railway domain before going live
 - Store secrets only in deployment environment variables
-- Restrict Firebase service account access to the project
-- Rotate `SESSION_SECRET` and admin password periodically
+- Restrict Firebase service-account access to the project
+- Rotate `SESSION_SECRET` and the admin password periodically
 - Monitor structured logs from the Express service
 - Review Firestore quotas and billing for expected traffic
 
