@@ -2,16 +2,27 @@ import type { Firestore } from "firebase-admin/firestore";
 import type { Logger } from "pino";
 import type {
   AdminOverview,
+  CompletedTaskInsightRecord,
   PlatformStatsRecord,
   ReferralInsightRecord,
   ReferralRecord,
+  TaskCompletionRecord,
   TaskRecord,
   UserDetailResponse,
   UserRecord,
   WalletTransactionRecord,
   WithdrawalRecord
 } from "../../../shared/src/types.js";
-import { platformStatsRef, referralsCollection, tasksCollection, userRef, usersCollection, walletTransactionsCollection, withdrawalsCollection } from "../data/refs.js";
+import {
+  platformStatsRef,
+  referralsCollection,
+  taskCompletionsCollection,
+  tasksCollection,
+  userRef,
+  usersCollection,
+  walletTransactionsCollection,
+  withdrawalsCollection
+} from "../data/refs.js";
 import { AppError } from "../utils/errors.js";
 import { sortByNewest } from "../utils/time.js";
 
@@ -22,22 +33,27 @@ export class AdminService {
   ) {}
 
   async getOverview(): Promise<AdminOverview> {
-    const [userCountSnap, activeTaskCountSnap, statsSnap] = await Promise.all([
+    const [userCountSnap, totalTaskCountSnap, activeTaskCountSnap, statsSnap] = await Promise.all([
       usersCollection(this.db).count().get(),
+      tasksCollection(this.db).count().get(),
       tasksCollection(this.db).where("status", "==", "active").count().get(),
       platformStatsRef(this.db).get()
     ]);
 
     const stats = (statsSnap.exists ? statsSnap.data() : null) as PlatformStatsRecord | null;
+    const totalTaskRewardsPaise = stats?.totalTaskRewardsPaise ?? 0;
+    const totalReferralRewardsPaise = stats?.totalReferralRewardsPaise ?? 0;
 
     return {
       userCount: userCountSnap.data().count,
+      totalTaskCount: totalTaskCountSnap.data().count,
       activeTaskCount: activeTaskCountSnap.data().count,
       pendingWithdrawalCount: stats?.pendingWithdrawalCount ?? 0,
       completedTaskCount: stats?.completedTaskCount ?? 0,
-      totalTaskRewardsPaise: stats?.totalTaskRewardsPaise ?? 0,
+      totalTaskRewardsPaise,
       rewardedReferralCount: stats?.rewardedReferralCount ?? 0,
-      totalReferralRewardsPaise: stats?.totalReferralRewardsPaise ?? 0,
+      totalReferralRewardsPaise,
+      totalEarningsPaise: totalTaskRewardsPaise + totalReferralRewardsPaise,
       approvedWithdrawalCount: stats?.approvedWithdrawalCount ?? 0,
       totalWithdrawnPaise: stats?.totalWithdrawnPaise ?? 0
     };
@@ -104,6 +120,49 @@ export class AdminService {
   async listTasks(): Promise<TaskRecord[]> {
     const snapshot = await tasksCollection(this.db).orderBy("createdAt", "desc").get();
     return snapshot.docs.map((doc) => doc.data() as TaskRecord);
+  }
+
+  async listCompletedTasks(): Promise<CompletedTaskInsightRecord[]> {
+    const snapshot = await taskCompletionsCollection(this.db).orderBy("updatedAt", "desc").limit(300).get();
+    const completions = snapshot.docs
+      .map((doc) => doc.data() as TaskCompletionRecord)
+      .filter((record) => record.status === "completed" && record.completedAt);
+
+    const userIds = Array.from(new Set(completions.map((record) => record.userId)));
+    const taskIds = Array.from(new Set(completions.map((record) => record.taskId)));
+
+    const [users, tasks] = await Promise.all([
+      Promise.all(
+        userIds.map(async (id) => {
+          const snapshot = await userRef(this.db, id).get();
+          return [id, snapshot.exists ? (snapshot.data() as UserRecord) : null] as const;
+        })
+      ),
+      Promise.all(
+        taskIds.map(async (id) => {
+          const snapshot = await tasksCollection(this.db).doc(id).get();
+          return [id, snapshot.exists ? (snapshot.data() as TaskRecord) : null] as const;
+        })
+      )
+    ]);
+
+    const userMap = new Map(users);
+    const taskMap = new Map(tasks);
+
+    return sortByNewest(
+      completions.map((completion) => ({
+        id: completion.id,
+        userId: completion.userId,
+        userDisplayName: userMap.get(completion.userId)?.displayName ?? completion.userId,
+        username: userMap.get(completion.userId)?.username ?? null,
+        taskId: completion.taskId,
+        taskTitle: taskMap.get(completion.taskId)?.title ?? completion.taskId,
+        rewardPaise: completion.rewardPaise,
+        completedAt: completion.completedAt ?? completion.updatedAt,
+        startedAt: completion.startedAt
+      })),
+      "completedAt"
+    );
   }
 
   async listWithdrawals(): Promise<WithdrawalRecord[]> {

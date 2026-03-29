@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { asyncHandler } from "../middlewares/async-handler.js";
-import { requireAdmin } from "../middlewares/require-admin.js";
+import { createRequireAdmin } from "../middlewares/require-admin.js";
 import type { AppServices } from "../types/app-services.js";
 import { AppError } from "../utils/errors.js";
 
@@ -72,7 +72,7 @@ export function createAdminRouter(services: AppServices) {
     })
   );
 
-  router.use(requireAdmin);
+  router.use(createRequireAdmin(services.config));
 
   router.get(
     "/overview",
@@ -100,6 +100,13 @@ export function createAdminRouter(services: AppServices) {
     "/tasks",
     asyncHandler(async (_req, res) => {
       res.json({ tasks: await services.adminService.listTasks() });
+    })
+  );
+
+  router.get(
+    "/completions",
+    asyncHandler(async (_req, res) => {
+      res.json({ completions: await services.adminService.listCompletedTasks() });
     })
   );
 
@@ -146,7 +153,11 @@ export function createAdminRouter(services: AppServices) {
     asyncHandler(async (req, res) => {
       const input = withdrawalReviewSchema.parse(req.body);
       const withdrawalId = String(req.params.id);
-      const withdrawal = await services.withdrawalService.approveWithdrawal(withdrawalId, "admin", input.adminNote ?? null);
+      const withdrawal = await services.withdrawalService.approveWithdrawal(
+        withdrawalId,
+        req.adminUser?.email ?? "admin",
+        input.adminNote ?? null
+      );
       services.adminService.logAdminAction("withdrawal.approve", { withdrawalId: withdrawal.id });
       res.json({ withdrawal });
     })
@@ -157,7 +168,11 @@ export function createAdminRouter(services: AppServices) {
     asyncHandler(async (req, res) => {
       const input = withdrawalReviewSchema.parse(req.body);
       const withdrawalId = String(req.params.id);
-      const withdrawal = await services.withdrawalService.rejectWithdrawal(withdrawalId, "admin", input.adminNote ?? null);
+      const withdrawal = await services.withdrawalService.rejectWithdrawal(
+        withdrawalId,
+        req.adminUser?.email ?? "admin",
+        input.adminNote ?? null
+      );
       services.adminService.logAdminAction("withdrawal.reject", { withdrawalId: withdrawal.id });
       res.json({ withdrawal });
     })

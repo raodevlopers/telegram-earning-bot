@@ -43,15 +43,22 @@ scripts/ PowerShell automation helpers for GitHub, Railway, and Firebase Hosting
    `BOT_TOKEN`, `BOT_USERNAME`, `WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET`
 3. Fill in Firebase Admin service-account values:
    `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
-4. Generate an admin password hash:
+4. Set `ADMIN_AUTH_EMAIL` to the Firebase Auth admin email you want to use for the dashboard.
+5. Set `ADMIN_ORIGIN` to your Firebase Hosting URL if the admin panel is hosted separately.
+6. Set a long random `SESSION_SECRET`.
+7. Generate an admin password hash for the legacy backend fallback:
 
 ```bash
 node -e "const bcrypt=require('bcryptjs'); bcrypt.hash(process.argv[1], 12).then(v=>console.log(v))" "your-admin-password"
 ```
 
-5. Put the hash into `ADMIN_PASSWORD_HASH`.
-6. Set a long random `SESSION_SECRET`.
-7. If the admin panel is hosted separately on Firebase Hosting, set `ADMIN_ORIGIN` to that public admin URL.
+8. Put the hash into `ADMIN_PASSWORD_HASH`.
+9. Create the Firebase Auth admin user and claims:
+
+```powershell
+$env:ADMIN_AUTH_PASSWORD="your-secure-admin-password"
+npm run setup:firebase-admin
+```
 
 ## Local Development
 
@@ -113,7 +120,7 @@ Recommended Firestore setup:
 
 - Enable Firestore in Native mode
 - Use the Admin SDK service account from the server only
-- Do not expose Firebase client credentials in the admin React app
+- Firebase web config in the React app is safe to expose, but never expose Firebase Admin credentials in the browser
 
 ## Telegram Bot Flow
 
@@ -134,9 +141,10 @@ The admin dashboard can run in two modes:
 
 Available admin capabilities:
 
-- Password login
+- Firebase Auth email and password login
 - Task creation, editing, pausing, and deletion
 - User balance and risk review
+- Completed task auditing
 - Referral inspection
 - Withdrawal approval and rejection
 
@@ -146,15 +154,17 @@ Available admin capabilities:
 
 1. Authenticate with Railway CLI using `railway login`.
 2. Ensure `.env` contains real Firebase Admin credentials. The Firebase web config alone is not enough for the backend.
-3. Run `.\scripts\railway-deploy.ps1`.
-4. Confirm the generated Railway domain is the same one stored in `WEBHOOK_BASE_URL`.
-5. Open `/health` on the deployed backend.
+3. Set `ADMIN_AUTH_EMAIL` on Railway to match the Firebase Auth admin email.
+4. Run `.\scripts\railway-deploy.ps1`.
+5. Confirm the generated Railway domain is the same one stored in `WEBHOOK_BASE_URL`.
+6. Open `/health` on the deployed backend.
 
 ### Firebase Hosting Admin
 
 1. Authenticate with Firebase CLI.
 2. Run `.\scripts\firebase-hosting-deploy.ps1 -ProjectId hybrid-engineer -ApiBaseUrl https://your-railway-app.up.railway.app`.
 3. Use the returned Hosting URL as `ADMIN_ORIGIN` in the Railway backend.
+4. Sign in with the seeded Firebase Auth admin account from the setup script.
 
 ### GitHub Publish
 
@@ -166,7 +176,7 @@ Available admin capabilities:
 - Use a real HTTPS Railway domain before going live
 - Store secrets only in deployment environment variables
 - Restrict Firebase service-account access to the project
-- Rotate `SESSION_SECRET` and the admin password periodically
+- Rotate `SESSION_SECRET`, the Firebase Auth admin password, and the fallback admin password hash periodically
 - Monitor structured logs from the Express service
 - Review Firestore quotas and billing for expected traffic
 

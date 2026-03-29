@@ -61,6 +61,10 @@ export function UsersTab({ users, selectedUserDetail, detailLoading, onSelectUse
                 <span>Referral earnings</span>
                 <strong>{formatRupeesFromPaise(selectedUserDetail.user.referralEarningsPaise)}</strong>
               </div>
+              <div>
+                <span>Last active</span>
+                <strong>{formatDateTime(selectedUserDetail.user.lastActiveAt)}</strong>
+              </div>
             </div>
 
             <div className="tag-row">
@@ -78,18 +82,22 @@ export function UsersTab({ users, selectedUserDetail, detailLoading, onSelectUse
             <div className="mini-section">
               <h3>Recent wallet transactions</h3>
               <div className="stack-list">
-                {selectedUserDetail.walletTransactions.slice(0, 6).map((transaction) => (
-                  <div key={transaction.id} className="list-card">
-                    <div>
-                      <strong>{transaction.type}</strong>
-                      <span>{transaction.referenceId}</span>
+                {selectedUserDetail.walletTransactions.length ? (
+                  selectedUserDetail.walletTransactions.slice(0, 6).map((transaction) => (
+                    <div key={transaction.id} className="list-card">
+                      <div>
+                        <strong>{transaction.type}</strong>
+                        <span>{transaction.referenceId}</span>
+                      </div>
+                      <div className="list-card-meta">
+                        <strong>{formatRupeesFromPaise(transaction.amountPaise)}</strong>
+                        <span>{formatDateTime(transaction.createdAt)}</span>
+                      </div>
                     </div>
-                    <div className="list-card-meta">
-                      <strong>{formatRupeesFromPaise(transaction.amountPaise)}</strong>
-                      <span>{formatDateTime(transaction.createdAt)}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="empty-copy">No wallet transactions recorded yet.</p>
+                )}
               </div>
             </div>
 
@@ -102,7 +110,7 @@ export function UsersTab({ users, selectedUserDetail, detailLoading, onSelectUse
                       <div>
                         <strong>{withdrawal.id}</strong>
                         <span>
-                          {withdrawal.payoutType} · {withdrawal.payoutValue}
+                          {withdrawal.payoutType} | {withdrawal.payoutValue}
                         </span>
                       </div>
                       <span

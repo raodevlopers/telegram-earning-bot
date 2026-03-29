@@ -16,6 +16,14 @@ export function OverviewTab({ overview, referrals, withdrawals }: OverviewTabPro
       <Panel title="Operational snapshot" subtitle="High-signal metrics from the live Firestore ledger.">
         <div className="metric-list">
           <div>
+            <span>Total tasks</span>
+            <strong>{overview?.totalTaskCount ?? 0}</strong>
+          </div>
+          <div>
+            <span>Active tasks</span>
+            <strong>{overview?.activeTaskCount ?? 0}</strong>
+          </div>
+          <div>
             <span>Completed tasks</span>
             <strong>{overview?.completedTaskCount ?? 0}</strong>
           </div>
@@ -24,12 +32,16 @@ export function OverviewTab({ overview, referrals, withdrawals }: OverviewTabPro
             <strong>{overview?.rewardedReferralCount ?? 0}</strong>
           </div>
           <div>
+            <span>Task rewards</span>
+            <strong>{formatRupeesFromPaise(overview?.totalTaskRewardsPaise ?? 0)}</strong>
+          </div>
+          <div>
             <span>Referral payouts</span>
             <strong>{formatRupeesFromPaise(overview?.totalReferralRewardsPaise ?? 0)}</strong>
           </div>
           <div>
-            <span>Approved withdrawals</span>
-            <strong>{overview?.approvedWithdrawalCount ?? 0}</strong>
+            <span>Total earnings</span>
+            <strong>{formatRupeesFromPaise(overview?.totalEarningsPaise ?? 0)}</strong>
           </div>
           <div>
             <span>Total withdrawn</span>
@@ -45,7 +57,7 @@ export function OverviewTab({ overview, referrals, withdrawals }: OverviewTabPro
               <div>
                 <strong>{withdrawal.displayName}</strong>
                 <span>
-                  {withdrawal.payoutType} · {withdrawal.payoutValue}
+                  {withdrawal.payoutType} | {withdrawal.payoutValue}
                 </span>
               </div>
               <div className="list-card-meta">
@@ -60,17 +72,21 @@ export function OverviewTab({ overview, referrals, withdrawals }: OverviewTabPro
 
       <Panel title="Referral pulse" subtitle="Recent referral relationships and payout states.">
         <div className="stack-list">
-          {referrals.slice(0, 6).map((referral) => (
-            <div key={referral.id} className="list-card">
-              <div>
-                <strong>{referral.referrerDisplayName}</strong>
-                <span>invited {referral.referredDisplayName}</span>
+          {referrals.length ? (
+            referrals.slice(0, 6).map((referral) => (
+              <div key={referral.id} className="list-card">
+                <div>
+                  <strong>{referral.referrerDisplayName}</strong>
+                  <span>invited {referral.referredDisplayName}</span>
+                </div>
+                <span className={referral.rewardGranted ? "status-pill success" : "status-pill pending"}>
+                  {referral.rewardGranted ? "Rewarded" : "Pending"}
+                </span>
               </div>
-              <span className={referral.rewardGranted ? "status-pill success" : "status-pill pending"}>
-                {referral.rewardGranted ? "Rewarded" : "Pending"}
-              </span>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="empty-copy">Referral insights will appear here once users start joining through invite links.</p>
+          )}
         </div>
       </Panel>
     </div>

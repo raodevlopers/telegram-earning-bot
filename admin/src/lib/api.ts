@@ -1,11 +1,13 @@
 import type {
   AdminOverview,
+  CompletedTaskInsightRecord,
   ReferralInsightRecord,
   TaskRecord,
   UserDetailResponse,
   UserRecord,
   WithdrawalRecord
 } from "../../../shared/src/types";
+import { auth } from "./firebase";
 
 interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
@@ -14,11 +16,13 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: "include",
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       ...(options.headers ?? {})
     },
     body: options.body ? JSON.stringify(options.body) : undefined
@@ -33,13 +37,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const api = {
-  getSession: () => request<{ authenticated: boolean }>("/api/admin/session"),
-  login: (password: string) => request<{ authenticated: boolean }>("/api/admin/login", { method: "POST", body: { password } }),
-  logout: () => request<{ authenticated: boolean }>("/api/admin/logout", { method: "POST" }),
   getOverview: () => request<AdminOverview>("/api/admin/overview"),
   getUsers: () => request<{ users: UserRecord[] }>("/api/admin/users"),
   getUserDetail: (userId: string) => request<UserDetailResponse>(`/api/admin/users/${userId}`),
   getTasks: () => request<{ tasks: TaskRecord[] }>("/api/admin/tasks"),
+  getCompletedTasks: () => request<{ completions: CompletedTaskInsightRecord[] }>("/api/admin/completions"),
   createTask: (input: { title: string; description: string; link: string; rewardPaise: number; status: TaskRecord["status"] }) =>
     request<{ task: TaskRecord }>("/api/admin/tasks", { method: "POST", body: input }),
   updateTask: (taskId: string, input: Partial<{ title: string; description: string; link: string; rewardPaise: number; status: TaskRecord["status"] }>) =>

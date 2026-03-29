@@ -12,6 +12,9 @@ if (-not $ApiBaseUrl) {
 }
 
 $env:VITE_API_BASE_URL = $ApiBaseUrl.TrimEnd("/")
+if ($env:ADMIN_AUTH_EMAIL) {
+  $env:VITE_ADMIN_AUTH_EMAIL = $env:ADMIN_AUTH_EMAIL
+}
 
 Invoke-LoggedCommand "npm run build -w admin"
 Invoke-LoggedCommand "firebase use $ProjectId"

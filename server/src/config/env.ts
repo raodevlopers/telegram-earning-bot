@@ -22,6 +22,7 @@ const envSchema = z.object({
   ADMIN_PASSWORD_HASH: z.string().min(20),
   SESSION_SECRET: z.string().min(16),
   ADMIN_ORIGIN: z.string().url().optional(),
+  ADMIN_AUTH_EMAIL: z.string().email().optional(),
   TASK_REWARD_PAISE: z.coerce.number().int().positive().default(DEFAULT_TASK_REWARD_PAISE),
   REFERRAL_REWARD_PAISE: z.coerce.number().int().positive().default(DEFAULT_REFERRAL_REWARD_PAISE),
   MIN_WITHDRAWAL_PAISE: z.coerce.number().int().positive().default(DEFAULT_MIN_WITHDRAWAL_PAISE),
@@ -48,6 +49,7 @@ export interface AppConfig {
     sessionSecret: string;
     cookieName: string;
     origin?: string;
+    authEmail?: string;
   };
   rewards: {
     taskRewardPaise: number;
@@ -85,7 +87,8 @@ export function getConfig(): AppConfig {
       passwordHash: parsed.ADMIN_PASSWORD_HASH,
       sessionSecret: parsed.SESSION_SECRET,
       cookieName: "earning_bot_admin",
-      origin: parsed.ADMIN_ORIGIN
+      origin: parsed.ADMIN_ORIGIN,
+      authEmail: parsed.ADMIN_AUTH_EMAIL
     },
     rewards: {
       taskRewardPaise: parsed.TASK_REWARD_PAISE,

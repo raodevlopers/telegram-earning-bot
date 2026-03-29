@@ -122,14 +122,28 @@ export interface ReferralInsightRecord extends ReferralRecord {
 
 export interface AdminOverview {
   userCount: number;
+  totalTaskCount: number;
   activeTaskCount: number;
   pendingWithdrawalCount: number;
   completedTaskCount: number;
   totalTaskRewardsPaise: number;
   rewardedReferralCount: number;
   totalReferralRewardsPaise: number;
+  totalEarningsPaise: number;
   approvedWithdrawalCount: number;
   totalWithdrawnPaise: number;
+}
+
+export interface CompletedTaskInsightRecord {
+  id: string;
+  userId: string;
+  userDisplayName: string;
+  username: string | null;
+  taskId: string;
+  taskTitle: string;
+  rewardPaise: number;
+  completedAt: string;
+  startedAt: string;
 }
 
 export interface UserDetailResponse {

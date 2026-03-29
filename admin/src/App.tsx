@@ -1,22 +1,40 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { ADMIN_POLL_INTERVAL_MS } from "../../shared/src/constants";
 import { formatDateTime, formatRupeesFromPaise } from "../../shared/src/format";
-import type { AdminOverview, ReferralInsightRecord, TaskRecord, UserDetailResponse, UserRecord, WithdrawalRecord } from "../../shared/src/types";
+import type {
+  AdminOverview,
+  CompletedTaskInsightRecord,
+  ReferralInsightRecord,
+  TaskRecord,
+  UserDetailResponse,
+  UserRecord,
+  WithdrawalRecord
+} from "../../shared/src/types";
 import { LoginView } from "./components/LoginView";
 import { StatCard } from "./components/StatCard";
+import { CompletedTasksTab } from "./components/tabs/CompletedTasksTab";
 import { OverviewTab } from "./components/tabs/OverviewTab";
 import { ReferralsTab } from "./components/tabs/ReferralsTab";
 import { TasksTab } from "./components/tabs/TasksTab";
 import { UsersTab } from "./components/tabs/UsersTab";
 import { WithdrawalsTab } from "./components/tabs/WithdrawalsTab";
 import { api } from "./lib/api";
+import { ADMIN_LOGIN, auth } from "./lib/firebase";
 
-type TabId = "overview" | "tasks" | "users" | "withdrawals" | "referrals";
+type TabId = "overview" | "tasks" | "users" | "completed" | "withdrawals" | "referrals";
+type ThemeMode = "dark" | "light";
+type ToastState = {
+  tone: "success" | "error";
+  message: string;
+} | null;
 
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "tasks", label: "Tasks" },
   { id: "users", label: "Users" },
+  { id: "completed", label: "Completed Tasks" },
   { id: "withdrawals", label: "Withdrawals" },
   { id: "referrals", label: "Referrals" }
 ];
@@ -29,21 +47,64 @@ const emptyTaskForm = {
   status: "active" as TaskRecord["status"]
 };
 
+const THEME_STORAGE_KEY = "income-hub-admin-theme";
+
+function normalizeUsername(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getSavedTheme(): ThemeMode {
+  if (typeof window === "undefined") {
+    return "dark";
+  }
+
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return savedTheme === "light" ? "light" : "dark";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error && "code" in error && typeof error.code === "string") {
+    switch (error.code) {
+      case "auth/invalid-credential":
+      case "auth/wrong-password":
+      case "auth/user-not-found":
+        return "Incorrect admin credentials.";
+      case "auth/too-many-requests":
+        return "Too many login attempts. Please wait a moment and try again.";
+      case "auth/network-request-failed":
+        return "Network request failed. Check your connection and try again.";
+      default:
+        break;
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export default function App() {
-  const [sessionLoading, setSessionLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [username, setUsername] = useState(ADMIN_LOGIN.username);
   const [password, setPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemeMode>(getSavedTheme);
 
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<CompletedTaskInsightRecord[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRecord[]>([]);
   const [referrals, setReferrals] = useState<ReferralInsightRecord[]>([]);
 
@@ -56,32 +117,111 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthenticated(Boolean(user));
+      setAuthEmail(user?.email ?? null);
+      setAuthReady(true);
 
-    async function loadSession() {
-      try {
-        const session = await api.getSession();
-        if (!active) {
-          return;
-        }
-        setAuthenticated(session.authenticated);
-      } catch (error) {
-        if (active) {
-          setAuthError(error instanceof Error ? error.message : "Unable to validate admin session.");
-        }
-      } finally {
-        if (active) {
-          setSessionLoading(false);
-        }
+      if (!user) {
+        setOverview(null);
+        setUsers([]);
+        setTasks([]);
+        setCompletedTasks([]);
+        setWithdrawals([]);
+        setReferrals([]);
+        setSelectedUserId(null);
+        setSelectedUserDetail(null);
       }
-    }
-
-    void loadSession();
+    });
 
     return () => {
-      active = false;
+      unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setToast(null);
+    }, 3600);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [toast]);
+
+  async function loadUserDetail(
+    userId: string,
+    options: {
+      updateSelection?: boolean;
+      silent?: boolean;
+    } = {}
+  ) {
+    const { updateSelection = true, silent = false } = options;
+
+    if (updateSelection) {
+      setSelectedUserId(userId);
+    }
+
+    if (!silent) {
+      setDetailLoading(true);
+    }
+
+    try {
+      const detail = await api.getUserDetail(userId);
+      setSelectedUserDetail(detail);
+    } catch (error) {
+      setDashboardError(getErrorMessage(error, "Failed to load user detail."));
+    } finally {
+      if (!silent) {
+        setDetailLoading(false);
+      }
+    }
+  }
+
+  async function refreshDashboard(silent: boolean) {
+    if (!silent) {
+      setDashboardLoading(true);
+    }
+
+    try {
+      const [nextOverview, nextUsers, nextTasks, nextCompletions, nextWithdrawals, nextReferrals] = await Promise.all([
+        api.getOverview(),
+        api.getUsers(),
+        api.getTasks(),
+        api.getCompletedTasks(),
+        api.getWithdrawals(),
+        api.getReferrals()
+      ]);
+
+      setOverview(nextOverview);
+      setUsers(nextUsers.users);
+      setTasks(nextTasks.tasks);
+      setCompletedTasks(nextCompletions.completions);
+      setWithdrawals(nextWithdrawals.withdrawals);
+      setReferrals(nextReferrals.referrals);
+      setLastUpdated(new Date().toISOString());
+      setDashboardError(null);
+
+      if (selectedUserId) {
+        void loadUserDetail(selectedUserId, { updateSelection: false, silent: true });
+      }
+    } catch (error) {
+      setDashboardError(getErrorMessage(error, "Failed to load dashboard data."));
+    } finally {
+      if (!silent) {
+        setDashboardLoading(false);
+      }
+    }
+  }
 
   useEffect(() => {
     if (!authenticated) {
@@ -90,49 +230,17 @@ export default function App() {
 
     let active = true;
 
-    async function loadData(silent: boolean) {
-      if (!silent) {
-        setDashboardLoading(true);
+    async function syncDashboard(silent: boolean) {
+      if (!active) {
+        return;
       }
 
-      try {
-        const [nextOverview, nextUsers, nextTasks, nextWithdrawals, nextReferrals] = await Promise.all([
-          api.getOverview(),
-          api.getUsers(),
-          api.getTasks(),
-          api.getWithdrawals(),
-          api.getReferrals()
-        ]);
-
-        if (!active) {
-          return;
-        }
-
-        setOverview(nextOverview);
-        setUsers(nextUsers.users);
-        setTasks(nextTasks.tasks);
-        setWithdrawals(nextWithdrawals.withdrawals);
-        setReferrals(nextReferrals.referrals);
-        setLastUpdated(new Date().toISOString());
-        setDashboardError(null);
-
-        if (selectedUserId) {
-          void loadUserDetail(selectedUserId);
-        }
-      } catch (error) {
-        if (active) {
-          setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard data.");
-        }
-      } finally {
-        if (active && !silent) {
-          setDashboardLoading(false);
-        }
-      }
+      await refreshDashboard(silent);
     }
 
-    void loadData(false);
+    void syncDashboard(false);
     const interval = window.setInterval(() => {
-      void loadData(true);
+      void syncDashboard(true);
     }, ADMIN_POLL_INTERVAL_MS);
 
     return () => {
@@ -141,43 +249,33 @@ export default function App() {
     };
   }, [authenticated, selectedUserId]);
 
-  async function loadUserDetail(userId: string) {
-    setSelectedUserId(userId);
-    setDetailLoading(true);
-
-    try {
-      const detail = await api.getUserDetail(userId);
-      setSelectedUserDetail(detail);
-    } catch (error) {
-      setDashboardError(error instanceof Error ? error.message : "Failed to load user detail.");
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
   async function handleLogin() {
     setAuthLoading(true);
     setAuthError(null);
 
     try {
-      await api.login(password);
-      setAuthenticated(true);
+      if (normalizeUsername(username) !== normalizeUsername(ADMIN_LOGIN.username)) {
+        throw new Error("Use the configured admin username to access this panel.");
+      }
+
+      await signInWithEmailAndPassword(auth, ADMIN_LOGIN.email, password);
       setPassword("");
+      setToast({ tone: "success", message: "Admin session secured successfully." });
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Login failed.");
+      setAuthError(getErrorMessage(error, "Login failed."));
     } finally {
       setAuthLoading(false);
     }
   }
 
   async function handleLogout() {
-    await api.logout();
-    setAuthenticated(false);
-    setSelectedUserId(null);
-    setSelectedUserDetail(null);
+    await signOut(auth);
+    setAuthError(null);
+    setPassword("");
+    setToast({ tone: "success", message: "Signed out of the admin console." });
   }
 
-  async function handleTaskSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setTaskSaving(true);
 
@@ -197,16 +295,19 @@ export default function App() {
 
       if (editingTaskId) {
         await api.updateTask(editingTaskId, payload);
+        setToast({ tone: "success", message: "Task updated successfully." });
       } else {
         await api.createTask(payload);
+        setToast({ tone: "success", message: "Task created successfully." });
       }
 
       setTaskForm(emptyTaskForm);
       setEditingTaskId(null);
-      const nextTasks = await api.getTasks();
-      setTasks(nextTasks.tasks);
+      await refreshDashboard(true);
     } catch (error) {
-      setDashboardError(error instanceof Error ? error.message : "Unable to save task.");
+      const message = getErrorMessage(error, "Unable to save task.");
+      setDashboardError(message);
+      setToast({ tone: "error", message });
     } finally {
       setTaskSaving(false);
     }
@@ -219,10 +320,12 @@ export default function App() {
 
     try {
       await api.deleteTask(taskId);
-      const nextTasks = await api.getTasks();
-      setTasks(nextTasks.tasks);
+      setToast({ tone: "success", message: "Task deleted successfully." });
+      await refreshDashboard(true);
     } catch (error) {
-      setDashboardError(error instanceof Error ? error.message : "Unable to delete task.");
+      const message = getErrorMessage(error, "Unable to delete task.");
+      setDashboardError(message);
+      setToast({ tone: "error", message });
     }
   }
 
@@ -233,15 +336,17 @@ export default function App() {
     try {
       if (action === "approve") {
         await api.approveWithdrawal(withdrawalId, adminNote);
+        setToast({ tone: "success", message: "Withdrawal approved successfully." });
       } else {
         await api.rejectWithdrawal(withdrawalId, adminNote);
+        setToast({ tone: "success", message: "Withdrawal rejected and refunded." });
       }
 
-      const [nextOverview, nextWithdrawals] = await Promise.all([api.getOverview(), api.getWithdrawals()]);
-      setOverview(nextOverview);
-      setWithdrawals(nextWithdrawals.withdrawals);
+      await refreshDashboard(true);
     } catch (error) {
-      setDashboardError(error instanceof Error ? error.message : "Unable to review withdrawal.");
+      const message = getErrorMessage(error, "Unable to review withdrawal.");
+      setDashboardError(message);
+      setToast({ tone: "error", message });
     }
   }
 
@@ -257,21 +362,48 @@ export default function App() {
     setActiveTab("tasks");
   }
 
-  if (sessionLoading) {
-    return <div className="loading-screen">Loading admin session...</div>;
+  if (!authReady) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner-card">
+          <span className="spinner" />
+          <strong>Preparing secure admin console...</strong>
+        </div>
+      </div>
+    );
   }
 
   if (!authenticated) {
-    return <LoginView loading={authLoading} error={authError} password={password} onPasswordChange={setPassword} onSubmit={handleLogin} />;
+    return (
+      <LoginView
+        loading={authLoading}
+        error={authError}
+        username={username}
+        password={password}
+        onUsernameChange={setUsername}
+        onPasswordChange={setPassword}
+        onSubmit={handleLogin}
+      />
+    );
   }
 
   return (
     <div className="app-shell">
+      {toast ? <div className={`toast toast-${toast.tone}`}>{toast.message}</div> : null}
+
       <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Income Hub</p>
-          <h1>Admin Console</h1>
-          <p className="sidebar-copy">Monitor task performance, referral growth, and payout risk from one place.</p>
+        <div className="sidebar-top">
+          <div>
+            <p className="eyebrow">Income Hub</p>
+            <h1>Admin Console</h1>
+            <p className="sidebar-copy">Monitor task performance, referral growth, withdrawals, and user activity from one secure dashboard.</p>
+          </div>
+
+          <div className="sidebar-admin-card">
+            <span>Signed in as</span>
+            <strong>{ADMIN_LOGIN.username}</strong>
+            <small>{authEmail ?? "Firebase admin session"}</small>
+          </div>
         </div>
 
         <nav className="sidebar-nav">
@@ -283,8 +415,11 @@ export default function App() {
         </nav>
 
         <div className="sidebar-actions">
-          <button className="secondary-button" type="button" onClick={() => window.location.reload()}>
-            Force refresh
+          <button className="secondary-button" type="button" onClick={() => void refreshDashboard(false)}>
+            Refresh now
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}>
+            Switch to {theme === "dark" ? "light" : "dark"} theme
           </button>
           <button className="ghost-button" type="button" onClick={() => void handleLogout()}>
             Log out
@@ -296,12 +431,13 @@ export default function App() {
         <header className="hero-panel">
           <div>
             <p className="eyebrow">Live operations</p>
-            <h2>Telegram earning bot control room</h2>
-            <p>Single-origin dashboard with secure cookie auth, Firestore-backed accounting, and auto-refreshing ops data.</p>
+            <h2>Telegram earning bot command center</h2>
+            <p>Firebase Auth secures the admin entry point, while Railway-backed APIs keep task management and wallet operations consistent.</p>
           </div>
           <div className="hero-meta">
-            <span>{dashboardLoading ? "Syncing..." : "Synced"}</span>
+            <span>{dashboardLoading ? "Syncing data" : "Live status"}</span>
             <strong>{lastUpdated ? formatDateTime(lastUpdated) : "Awaiting first sync"}</strong>
+            <p className="sync-indicator">{dashboardLoading ? "Pulling the latest Firestore state..." : "Auto-refresh enabled every 20 seconds."}</p>
           </div>
         </header>
 
@@ -309,10 +445,17 @@ export default function App() {
 
         {overview ? (
           <div className="stat-grid">
-            <StatCard label="Users" value={String(overview.userCount)} tone="blue" />
-            <StatCard label="Active tasks" value={String(overview.activeTaskCount)} tone="teal" />
-            <StatCard label="Pending withdrawals" value={String(overview.pendingWithdrawalCount)} tone="amber" />
-            <StatCard label="Task rewards paid" value={formatRupeesFromPaise(overview.totalTaskRewardsPaise)} tone="coral" />
+            <StatCard label="Total users" value={String(overview.userCount)} tone="blue" />
+            <StatCard label="Total earnings" value={formatRupeesFromPaise(overview.totalEarningsPaise)} tone="teal" />
+            <StatCard label="Total tasks" value={String(overview.totalTaskCount)} tone="amber" />
+            <StatCard label="Pending withdrawals" value={String(overview.pendingWithdrawalCount)} tone="coral" />
+          </div>
+        ) : null}
+
+        {!overview && dashboardLoading ? (
+          <div className="panel panel-loading">
+            <span className="spinner" />
+            <p className="empty-copy">Loading your live admin metrics...</p>
           </div>
         ) : null}
 
@@ -333,7 +476,15 @@ export default function App() {
             onDelete={(taskId) => void handleDeleteTask(taskId)}
           />
         ) : null}
-        {activeTab === "users" ? <UsersTab users={users} selectedUserDetail={selectedUserDetail} detailLoading={detailLoading} onSelectUser={(userId) => void loadUserDetail(userId)} /> : null}
+        {activeTab === "users" ? (
+          <UsersTab
+            users={users}
+            selectedUserDetail={selectedUserDetail}
+            detailLoading={detailLoading}
+            onSelectUser={(userId) => void loadUserDetail(userId)}
+          />
+        ) : null}
+        {activeTab === "completed" ? <CompletedTasksTab completions={completedTasks} /> : null}
         {activeTab === "withdrawals" ? <WithdrawalsTab withdrawals={withdrawals} onReview={(id, action) => void handleWithdrawalReview(id, action)} /> : null}
         {activeTab === "referrals" ? <ReferralsTab referrals={referrals} /> : null}
       </main>
