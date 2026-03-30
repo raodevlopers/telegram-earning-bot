@@ -12,9 +12,12 @@ export const PLATFORM_STATS_DOC_ID = "platform";
 
 export const DEFAULT_TASK_REWARD_PAISE = 1_000;
 export const DEFAULT_REFERRAL_REWARD_PAISE = 500;
-export const DEFAULT_MIN_WITHDRAWAL_PAISE = 3_000;
+export const DEFAULT_MIN_WITHDRAWAL_PAISE = 3_500;
 export const DEFAULT_TASK_VERIFY_COOLDOWN_SECONDS = 15;
+export const DEFAULT_TASK_TIMER_SECONDS = 30;
 export const ADMIN_POLL_INTERVAL_MS = 20_000;
+export const DEFAULT_DAILY_REMINDER_MIN = 3;
+export const DEFAULT_DAILY_REMINDER_MAX = 4;
 
 export const RISK_FLAGS = {
   selfReferralAttempt: "self_referral_attempt",

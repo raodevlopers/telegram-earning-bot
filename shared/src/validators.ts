@@ -21,12 +21,24 @@ export function isValidPaytmNumber(value: string): boolean {
   return /^[6-9]\d{9}$/.test(value.trim());
 }
 
+export function isValidPaypalEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+export function isValidGooglePlayDestination(value: string): boolean {
+  return value.trim().length >= 5 && value.trim().length <= 120;
+}
+
 export function isValidPayoutDestination(type: PayoutType, value: string): boolean {
   if (type === "UPI") {
     return isValidUpiId(value);
   }
 
-  return isValidPaytmNumber(value);
+  if (type === "PAYPAL") {
+    return isValidPaypalEmail(value);
+  }
+
+  return isValidGooglePlayDestination(value);
 }
 
 export function secondsUntilVerificationAllowed(startedAt: string, cooldownSeconds: number): number {

@@ -3,9 +3,9 @@ import type { Logger } from "pino";
 import type { AppConfig } from "../config/env.js";
 import type { BotState, ReferralRecord, TelegramProfile, UserRecord } from "../../../shared/src/types.js";
 import { RISK_FLAGS } from "../../../shared/src/constants.js";
-import { referralRef, referralsCollection, userRef } from "../data/refs.js";
+import { referralRef, referralsCollection, userRef, usersCollection } from "../data/refs.js";
 import { AppError } from "../utils/errors.js";
-import { nowIso, sortByNewest } from "../utils/time.js";
+import { addMinutesIso, getIndiaDayKey, nowIso, sortByNewest } from "../utils/time.js";
 import { buildDisplayName } from "../../../shared/src/format.js";
 import { buildReferralCode } from "../../../shared/src/validators.js";
 
@@ -49,6 +49,10 @@ export class UserService {
           pendingWithdrawalId: null,
           riskFlags,
           botState: null,
+          reminderDayKey: getIndiaDayKey(),
+          remindersSentToday: 0,
+          nextReminderAt: this.getNextReminderAt(timestamp, 0),
+          lastReminderSentAt: null,
           createdAt: timestamp,
           updatedAt: timestamp,
           lastActiveAt: timestamp
@@ -91,6 +95,10 @@ export class UserService {
         lastName: profile.lastName,
         displayName: buildDisplayName(profile),
         riskFlags,
+        reminderDayKey: existing.reminderDayKey ?? getIndiaDayKey(),
+        remindersSentToday: existing.remindersSentToday ?? 0,
+        nextReminderAt: existing.nextReminderAt ?? this.getNextReminderAt(timestamp, existing.remindersSentToday ?? 0),
+        lastReminderSentAt: existing.lastReminderSentAt ?? null,
         updatedAt: timestamp,
         lastActiveAt: timestamp
       };
@@ -134,6 +142,38 @@ export class UserService {
     };
   }
 
+  async listUsersDueForReminder(limit = 50) {
+    const snapshot = await usersCollection(this.db).where("nextReminderAt", "<=", nowIso()).limit(limit).get();
+    return snapshot.docs.map((doc) => doc.data() as UserRecord);
+  }
+
+  async markReminderSent(userId: string) {
+    const user = await this.getUser(userId);
+    const todayKey = getIndiaDayKey();
+    const sameDay = user.reminderDayKey === todayKey;
+    const sentToday = sameDay ? user.remindersSentToday + 1 : 1;
+
+    await userRef(this.db, userId).set(
+      {
+        reminderDayKey: todayKey,
+        remindersSentToday: sentToday,
+        lastReminderSentAt: nowIso(),
+        nextReminderAt: this.getNextReminderAt(nowIso(), sentToday)
+      },
+      { merge: true }
+    );
+  }
+
+  async rescheduleReminderRetry(userId: string, retryMinutes = 60) {
+    await userRef(this.db, userId).set(
+      {
+        nextReminderAt: addMinutesIso(nowIso(), retryMinutes),
+        updatedAt: nowIso()
+      },
+      { merge: true }
+    );
+  }
+
   private async resolveReferrer(transaction: Transaction, currentUserId: string, referredBy: string | null) {
     if (!referredBy || referredBy === currentUserId) {
       return null;
@@ -145,5 +185,17 @@ export class UserService {
     }
 
     return referredBy;
+  }
+
+  private getNextReminderAt(baseIso: string, sentToday: number) {
+    const maxPerDay = Math.max(this._config.reminders.minPerDay, this._config.reminders.maxPerDay);
+    if (sentToday >= maxPerDay) {
+      return addMinutesIso(baseIso, 12 * 60);
+    }
+
+    const minGapMinutes = 180;
+    const maxGapMinutes = 420;
+    const delayMinutes = Math.floor(Math.random() * (maxGapMinutes - minGapMinutes + 1)) + minGapMinutes;
+    return addMinutesIso(baseIso, delayMinutes);
   }
 }

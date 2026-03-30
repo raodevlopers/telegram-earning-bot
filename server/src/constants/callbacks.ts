@@ -9,6 +9,7 @@ export const CALLBACKS = {
 } as const;
 
 export const taskViewCallback = (taskId: string) => `task:view:${taskId}`;
-export const taskOpenCallback = (taskId: string) => `task:open:${taskId}`;
-export const taskVerifyCallback = (taskId: string) => `task:verify:${taskId}`;
-export const withdrawTypeCallback = (type: "UPI" | "PAYTM") => `withdraw:type:${type}`;
+export const taskStartCallback = (taskId: string) => `task:start:${taskId}`;
+export const taskProofCallback = (taskId: string) => `task:proof:${taskId}`;
+export const taskClaimCallback = (taskId: string) => `task:claim:${taskId}`;
+export const withdrawTypeCallback = (type: "UPI" | "PAYPAL" | "GOOGLE_PLAY") => `withdraw:type:${type}`;

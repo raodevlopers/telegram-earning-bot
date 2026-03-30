@@ -206,6 +206,10 @@ td span,
   background: var(--surface-strong);
 }
 
+.compact-form {
+  padding: 16px;
+}
+
 .login-form label,
 .task-form label {
   display: grid;
@@ -351,6 +355,12 @@ button:disabled {
 .sidebar-actions {
   display: grid;
   gap: 12px;
+}
+
+.sidebar-actions label {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
 }
 
 .sidebar-admin-card strong {
@@ -583,6 +593,39 @@ th {
 
 .inline-fields > label {
   flex: 1 1 220px;
+}
+
+.task-form small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.gallery-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.gallery-preview-card {
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--bg-soft);
+  display: grid;
+  gap: 10px;
+}
+
+.gallery-preview-card img,
+.proof-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+
+.proof-link {
+  display: inline-flex;
+  width: 70px;
 }
 
 .mini-section {

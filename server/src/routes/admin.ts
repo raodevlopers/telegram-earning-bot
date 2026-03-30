@@ -11,20 +11,65 @@ const loginSchema = z.object({
   password: z.string().min(1)
 });
 
-const taskSchema = z.object({
+const taskImageSchema = z.object({
+  url: z.string().url(),
+  displayUrl: z.string().url(),
+  deleteUrl: z.string().url().nullable(),
+  filename: z.string().nullable()
+});
+
+const baseTaskSchema = z.object({
+  taskType: z.enum(["maps_review", "site_wait", "search_visit"]),
   title: z.string().min(3).max(120),
   description: z.string().min(10).max(1000),
   link: z.string().url(),
+  caption: z.string().max(2000).optional().nullable(),
+  galleryImages: z.array(taskImageSchema).max(6).optional(),
+  timerSeconds: z.number().int().positive().max(600).optional(),
+  proofRequired: z.boolean().optional(),
   rewardPaise: z.number().int().positive().optional(),
   status: z.enum(["active", "paused"]).optional()
 });
 
-const updateTaskSchema = taskSchema.partial().refine((value) => Object.keys(value).length > 0, {
+const taskSchema = baseTaskSchema
+  .superRefine((value, ctx) => {
+    if (value.taskType === "maps_review") {
+      if (!value.caption?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Maps review tasks require a caption or review text.",
+          path: ["caption"]
+        });
+      }
+
+      if (!value.galleryImages?.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Maps review tasks require at least one reference image.",
+          path: ["galleryImages"]
+        });
+      }
+    }
+  });
+
+const updateTaskSchema = baseTaskSchema.partial().refine((value) => Object.keys(value).length > 0, {
   message: "At least one task field must be provided."
 });
 
 const withdrawalReviewSchema = z.object({
   adminNote: z.string().max(300).optional().nullable()
+});
+
+const imageUploadSchema = z.object({
+  imageData: z.string().min(20),
+  fileName: z.string().max(120).optional()
+});
+
+const balanceAdjustSchema = z.object({
+  amountPaise: z.number().int().refine((value) => value !== 0, {
+    message: "Adjustment amount cannot be zero."
+  }),
+  note: z.string().trim().min(3).max(160)
 });
 
 export function createAdminRouter(services: AppServices) {
@@ -96,6 +141,22 @@ export function createAdminRouter(services: AppServices) {
     })
   );
 
+  router.post(
+    "/users/:id/balance",
+    asyncHandler(async (req, res) => {
+      const userId = String(req.params.id);
+      const input = balanceAdjustSchema.parse(req.body);
+      const user = await services.adminService.adjustUserBalance({
+        userId,
+        amountPaise: input.amountPaise,
+        note: input.note,
+        adminEmail: req.adminUser?.email ?? "admin"
+      });
+      services.adminService.logAdminAction("user.balance.adjust", { userId, amountPaise: input.amountPaise });
+      res.json({ user });
+    })
+  );
+
   router.get(
     "/tasks",
     asyncHandler(async (_req, res) => {
@@ -107,6 +168,15 @@ export function createAdminRouter(services: AppServices) {
     "/completions",
     asyncHandler(async (_req, res) => {
       res.json({ completions: await services.adminService.listCompletedTasks() });
+    })
+  );
+
+  router.post(
+    "/uploads/image",
+    asyncHandler(async (req, res) => {
+      const input = imageUploadSchema.parse(req.body);
+      const image = await services.imageHostingService.uploadBase64Image(input.imageData, input.fileName);
+      res.status(201).json({ image });
     })
   );
 
