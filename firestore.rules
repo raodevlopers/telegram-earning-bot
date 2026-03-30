@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All Firestore access is intentionally server-side through the Admin SDK.
+    // The React admin app only uses Firebase Auth and our backend API.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

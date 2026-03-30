@@ -3,12 +3,26 @@ type LoginViewProps = {
   error: string | null;
   username: string;
   password: string;
+  backendUrl: string;
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onBackendUrlChange: (value: string) => void;
+  onSaveBackendUrl: () => void;
   onSubmit: () => void;
 };
 
-export function LoginView({ loading, error, username, password, onUsernameChange, onPasswordChange, onSubmit }: LoginViewProps) {
+export function LoginView({
+  loading,
+  error,
+  username,
+  password,
+  backendUrl,
+  onUsernameChange,
+  onPasswordChange,
+  onBackendUrlChange,
+  onSaveBackendUrl,
+  onSubmit
+}: LoginViewProps) {
   return (
     <div className="login-shell">
       <div className="login-card">
@@ -55,6 +69,23 @@ export function LoginView({ loading, error, username, password, onUsernameChange
           </label>
 
           <p className="helper-copy">Use the configured admin username and your Firebase Auth password to unlock the dashboard.</p>
+
+          <label htmlFor="backendUrl">
+            Backend API URL
+            <input
+              id="backendUrl"
+              type="url"
+              placeholder="https://your-backend.up.railway.app"
+              value={backendUrl}
+              onChange={(event) => onBackendUrlChange(event.target.value)}
+              autoComplete="url"
+              spellCheck={false}
+            />
+          </label>
+
+          <button type="button" className="secondary-button" onClick={onSaveBackendUrl}>
+            Save backend URL
+          </button>
 
           <label htmlFor="password">
             Password

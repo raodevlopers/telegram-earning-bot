@@ -27,6 +27,13 @@ export function formatRelativeSeconds(seconds: number): string {
   return `${seconds} seconds`;
 }
 
+export function formatCountdown(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
 export function buildReferralLink(botUsername: string, telegramId: string): string {
   return `https://t.me/${botUsername}?start=ref_${telegramId}`;
 }
@@ -42,4 +49,17 @@ export function buildDisplayName(profile: TelegramProfile): string {
   }
 
   return `User ${profile.id}`;
+}
+
+export function formatTaskType(taskType: "maps_review" | "site_wait" | "search_visit") {
+  switch (taskType) {
+    case "maps_review":
+      return "Google Maps Review";
+    case "site_wait":
+      return "Website Visit";
+    case "search_visit":
+      return "Google Search Visit";
+    default:
+      return taskType;
+  }
 }

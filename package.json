@@ -13,6 +13,7 @@
     "dev": "concurrently -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w admin\"",
     "build": "npm run build -w admin && npm run build -w server",
     "start": "npm run start -w server",
+    "preflight": "powershell -ExecutionPolicy Bypass -File ./scripts/production-preflight.ps1",
     "setup:firebase-admin": "node --env-file=.env scripts/setup-firebase-auth-admin.mjs",
     "test": "npm run test -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w admin"

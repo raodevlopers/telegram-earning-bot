@@ -20,6 +20,7 @@ import {
   tasksCollection,
   userRef,
   usersCollection,
+  walletTransactionRef,
   walletTransactionsCollection,
   withdrawalsCollection
 } from "../data/refs.js";
@@ -124,9 +125,7 @@ export class AdminService {
 
   async listCompletedTasks(): Promise<CompletedTaskInsightRecord[]> {
     const snapshot = await taskCompletionsCollection(this.db).orderBy("updatedAt", "desc").limit(300).get();
-    const completions = snapshot.docs
-      .map((doc) => doc.data() as TaskCompletionRecord)
-      .filter((record) => record.status === "completed" && record.completedAt);
+    const completions = snapshot.docs.map((doc) => doc.data() as TaskCompletionRecord);
 
     const userIds = Array.from(new Set(completions.map((record) => record.userId)));
     const taskIds = Array.from(new Set(completions.map((record) => record.taskId)));
@@ -152,12 +151,16 @@ export class AdminService {
     return sortByNewest(
       completions.map((completion) => ({
         id: completion.id,
+        status: completion.status,
         userId: completion.userId,
         userDisplayName: userMap.get(completion.userId)?.displayName ?? completion.userId,
         username: userMap.get(completion.userId)?.username ?? null,
         taskId: completion.taskId,
         taskTitle: taskMap.get(completion.taskId)?.title ?? completion.taskId,
+        taskType: taskMap.get(completion.taskId)?.taskType ?? "site_wait",
         rewardPaise: completion.rewardPaise,
+        proofImageUrl: completion.proofImageUrl,
+        proofImageThumbUrl: completion.proofImageThumbUrl,
         completedAt: completion.completedAt ?? completion.updatedAt,
         startedAt: completion.startedAt
       })),
@@ -195,6 +198,67 @@ export class AdminService {
       referredDisplayName: userMap.get(entry.referredId)?.displayName ?? entry.referredId,
       referredUsername: userMap.get(entry.referredId)?.username ?? null
     }));
+  }
+
+  async adjustUserBalance(input: {
+    userId: string;
+    amountPaise: number;
+    note: string;
+    adminEmail: string;
+  }) {
+    return this.db.runTransaction(async (transaction) => {
+      const timestamp = new Date().toISOString();
+      const userSnapshot = await transaction.get(userRef(this.db, input.userId));
+      if (!userSnapshot.exists) {
+        throw new AppError(404, "user_not_found", "User not found.");
+      }
+
+      const user = userSnapshot.data() as UserRecord;
+      if (user.pendingWithdrawalId) {
+        throw new AppError(400, "withdrawal_pending", "Clear the pending withdrawal before changing this balance.");
+      }
+
+      const nextBalance = user.balancePaise + input.amountPaise;
+      if (nextBalance < 0) {
+        throw new AppError(400, "insufficient_balance", "Balance cannot go below zero.");
+      }
+
+      const txId = `admin_adjust_${input.userId}_${Date.now()}`;
+      const noteSuffix = input.note.trim().slice(0, 160);
+
+      transaction.set(
+        userRef(this.db, input.userId),
+        {
+          balancePaise: nextBalance,
+          updatedAt: timestamp,
+          lastActiveAt: timestamp
+        },
+        { merge: true }
+      );
+      transaction.set(
+        walletTransactionRef(this.db, txId),
+        {
+          id: txId,
+          userId: input.userId,
+          type: "admin_adjustment",
+          amountPaise: input.amountPaise,
+          balanceAfterPaise: nextBalance,
+          referenceType: "admin",
+          referenceId: `${input.adminEmail}: ${noteSuffix}`,
+          createdAt: timestamp
+        } satisfies WalletTransactionRecord
+      );
+
+      const updatedUser: UserRecord = {
+        ...user,
+        balancePaise: nextBalance,
+        updatedAt: timestamp,
+        lastActiveAt: timestamp
+      };
+
+      this.logger.info({ userId: input.userId, amountPaise: input.amountPaise, adminEmail: input.adminEmail }, "admin_balance_adjusted");
+      return updatedUser;
+    });
   }
 
   logAdminAction(action: string, payload: Record<string, unknown>) {

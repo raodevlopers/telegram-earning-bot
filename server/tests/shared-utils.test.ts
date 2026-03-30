@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseReferralPayload, isValidPaytmNumber, isValidUpiId, secondsUntilVerificationAllowed } from "../../shared/src/validators.js";
+import {
+  isValidGooglePlayDestination,
+  isValidPaypalEmail,
+  isValidPayoutDestination,
+  isValidUpiId,
+  parseReferralPayload,
+  secondsUntilVerificationAllowed
+} from "../../shared/src/validators.js";
 
 describe("shared validators", () => {
   it("parses valid referral payloads", () => {
@@ -7,11 +14,16 @@ describe("shared validators", () => {
     expect(parseReferralPayload("invalid")).toBeNull();
   });
 
-  it("validates UPI and Paytm destinations", () => {
+  it("validates payout destinations", () => {
     expect(isValidUpiId("jatin@okaxis")).toBe(true);
     expect(isValidUpiId("bad-format")).toBe(false);
-    expect(isValidPaytmNumber("9876543210")).toBe(true);
-    expect(isValidPaytmNumber("1234")).toBe(false);
+    expect(isValidPaypalEmail("jatin@example.com")).toBe(true);
+    expect(isValidPaypalEmail("not-an-email")).toBe(false);
+    expect(isValidGooglePlayDestination("jatinplay@gmail.com")).toBe(true);
+    expect(isValidGooglePlayDestination("bad")).toBe(false);
+    expect(isValidPayoutDestination("UPI", "jatin@okaxis")).toBe(true);
+    expect(isValidPayoutDestination("PAYPAL", "jatin@example.com")).toBe(true);
+    expect(isValidPayoutDestination("GOOGLE_PLAY", "jatinplay@gmail.com")).toBe(true);
   });
 
   it("calculates remaining task verification cooldown", () => {

@@ -8,9 +8,26 @@ type UsersTabProps = {
   selectedUserDetail: UserDetailResponse | null;
   detailLoading: boolean;
   onSelectUser: (userId: string) => void;
+  balanceAdjustAmount: string;
+  balanceAdjustNote: string;
+  balanceAdjustSaving: boolean;
+  onBalanceAdjustAmountChange: (value: string) => void;
+  onBalanceAdjustNoteChange: (value: string) => void;
+  onAdjustBalance: () => void;
 };
 
-export function UsersTab({ users, selectedUserDetail, detailLoading, onSelectUser }: UsersTabProps) {
+export function UsersTab({
+  users,
+  selectedUserDetail,
+  detailLoading,
+  onSelectUser,
+  balanceAdjustAmount,
+  balanceAdjustNote,
+  balanceAdjustSaving,
+  onBalanceAdjustAmountChange,
+  onBalanceAdjustNoteChange,
+  onAdjustBalance
+}: UsersTabProps) {
   return (
     <div className="content-grid users-grid">
       <Panel title="User directory" subtitle="Click a user to inspect wallet activity, withdrawals, and referral state.">
@@ -77,6 +94,35 @@ export function UsersTab({ users, selectedUserDetail, detailLoading, onSelectUse
               ) : (
                 <span className="status-pill success">No risk flags</span>
               )}
+            </div>
+
+            <div className="mini-section">
+              <h3>Adjust balance</h3>
+              <div className="task-form compact-form">
+                <label>
+                  Amount in INR
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={balanceAdjustAmount}
+                    onChange={(event) => onBalanceAdjustAmountChange(event.target.value)}
+                    placeholder="Use negative value to deduct"
+                  />
+                </label>
+                <label>
+                  Admin note
+                  <input
+                    type="text"
+                    value={balanceAdjustNote}
+                    onChange={(event) => onBalanceAdjustNoteChange(event.target.value)}
+                    placeholder="Reason for manual adjustment"
+                  />
+                </label>
+                <button type="button" onClick={onAdjustBalance} disabled={balanceAdjustSaving}>
+                  {balanceAdjustSaving ? "Updating..." : "Apply balance change"}
+                </button>
+                <p className="helper-copy">Positive amount add karega, negative amount deduct karega. Pending withdrawal wale users ko adjust nahin kiya jayega.</p>
+              </div>
             </div>
 
             <div className="mini-section">

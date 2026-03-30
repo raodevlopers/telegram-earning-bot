@@ -7,6 +7,7 @@ import type {
   AdminOverview,
   CompletedTaskInsightRecord,
   ReferralInsightRecord,
+  TaskImageRecord,
   TaskRecord,
   UserDetailResponse,
   UserRecord,
@@ -20,7 +21,7 @@ import { ReferralsTab } from "./components/tabs/ReferralsTab";
 import { TasksTab } from "./components/tabs/TasksTab";
 import { UsersTab } from "./components/tabs/UsersTab";
 import { WithdrawalsTab } from "./components/tabs/WithdrawalsTab";
-import { api } from "./lib/api";
+import { api, clearApiBaseUrl, getApiBaseUrl, saveApiBaseUrl } from "./lib/api";
 import { ADMIN_LOGIN, auth } from "./lib/firebase";
 
 type TabId = "overview" | "tasks" | "users" | "completed" | "withdrawals" | "referrals";
@@ -40,12 +41,26 @@ const tabs: Array<{ id: TabId; label: string }> = [
 ];
 
 const emptyTaskForm = {
+  taskType: "maps_review" as TaskRecord["taskType"],
   title: "",
   description: "",
   link: "",
+  caption: "",
+  timerSeconds: "30",
+  proofRequired: true,
+  galleryImages: [] as TaskImageRecord[],
   rewardRupees: "10",
   status: "active" as TaskRecord["status"]
 };
+
+async function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Failed to read image file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 const THEME_STORAGE_KEY = "income-hub-admin-theme";
 
@@ -94,6 +109,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(getSavedTheme);
+  const [apiBaseUrlInput, setApiBaseUrlInput] = useState(getApiBaseUrl);
 
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -111,10 +127,14 @@ export default function App() {
   const [taskForm, setTaskForm] = useState(emptyTaskForm);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [taskSaving, setTaskSaving] = useState(false);
+  const [taskImageUploading, setTaskImageUploading] = useState(false);
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserDetail, setSelectedUserDetail] = useState<UserDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [balanceAdjustAmount, setBalanceAdjustAmount] = useState("0");
+  const [balanceAdjustNote, setBalanceAdjustNote] = useState("");
+  const [balanceAdjustSaving, setBalanceAdjustSaving] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -178,6 +198,8 @@ export default function App() {
     try {
       const detail = await api.getUserDetail(userId);
       setSelectedUserDetail(detail);
+      setBalanceAdjustAmount("0");
+      setBalanceAdjustNote("");
     } catch (error) {
       setDashboardError(getErrorMessage(error, "Failed to load user detail."));
     } finally {
@@ -286,9 +308,14 @@ export default function App() {
       }
 
       const payload = {
+        taskType: taskForm.taskType,
         title: taskForm.title.trim(),
         description: taskForm.description.trim(),
         link: taskForm.link.trim(),
+        caption: taskForm.caption.trim() || null,
+        galleryImages: taskForm.galleryImages,
+        timerSeconds: Math.max(1, Number(taskForm.timerSeconds) || 30),
+        proofRequired: taskForm.proofRequired,
         rewardPaise,
         status: taskForm.status
       };
@@ -310,6 +337,34 @@ export default function App() {
       setToast({ tone: "error", message });
     } finally {
       setTaskSaving(false);
+    }
+  }
+
+  async function handleTaskImagesSelected(fileList: FileList | null) {
+    if (!fileList?.length) {
+      return;
+    }
+
+    setTaskImageUploading(true);
+    try {
+      const nextImages = [...taskForm.galleryImages];
+      for (const file of Array.from(fileList).slice(0, 3)) {
+        const imageData = await fileToDataUrl(file);
+        const uploaded = await api.uploadImage({ imageData, fileName: file.name });
+        nextImages.push(uploaded.image);
+      }
+
+      setTaskForm((current) => ({
+        ...current,
+        galleryImages: nextImages.slice(0, 6)
+      }));
+      setToast({ tone: "success", message: "Task images uploaded successfully." });
+    } catch (error) {
+      const message = getErrorMessage(error, "Unable to upload task images.");
+      setDashboardError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setTaskImageUploading(false);
     }
   }
 
@@ -353,13 +408,71 @@ export default function App() {
   function beginTaskEdit(task: TaskRecord) {
     setEditingTaskId(task.id);
     setTaskForm({
+      taskType: task.taskType,
       title: task.title,
       description: task.description,
       link: task.link,
+      caption: task.caption ?? "",
+      timerSeconds: String(task.timerSeconds),
+      proofRequired: task.proofRequired,
+      galleryImages: task.galleryImages,
       rewardRupees: String(task.rewardPaise / 100),
       status: task.status
     });
     setActiveTab("tasks");
+  }
+
+  function handleSaveApiBaseUrl() {
+    const value = apiBaseUrlInput.trim();
+    if (!value) {
+      clearApiBaseUrl();
+      setApiBaseUrlInput(getApiBaseUrl());
+      setToast({ tone: "success", message: "Backend URL override cleared. Using default resolution again." });
+      return;
+    }
+
+    saveApiBaseUrl(value);
+    setApiBaseUrlInput(getApiBaseUrl());
+    setToast({ tone: "success", message: "Backend URL saved successfully." });
+    if (authenticated) {
+      void refreshDashboard(false);
+    }
+  }
+
+  async function handleAdjustBalance() {
+    if (!selectedUserId) {
+      return;
+    }
+
+    const amountPaise = Math.round(Number(balanceAdjustAmount) * 100);
+    if (!Number.isFinite(amountPaise) || amountPaise === 0) {
+      setToast({ tone: "error", message: "Enter a non-zero amount to increase or decrease the balance." });
+      return;
+    }
+
+    if (!balanceAdjustNote.trim()) {
+      setToast({ tone: "error", message: "Add a short admin note for the wallet adjustment." });
+      return;
+    }
+
+    setBalanceAdjustSaving(true);
+    try {
+      await api.adjustUserBalance(selectedUserId, {
+        amountPaise,
+        note: balanceAdjustNote.trim()
+      });
+      setToast({ tone: "success", message: "User balance updated successfully." });
+      await refreshDashboard(true);
+      await loadUserDetail(selectedUserId, { updateSelection: false });
+      setBalanceAdjustAmount("0");
+      setBalanceAdjustNote("");
+    } catch (error) {
+      const message = getErrorMessage(error, "Unable to adjust user balance.");
+      setDashboardError(message);
+      setToast({ tone: "error", message });
+    } finally {
+      setBalanceAdjustSaving(false);
+    }
   }
 
   if (!authReady) {
@@ -380,8 +493,11 @@ export default function App() {
         error={authError}
         username={username}
         password={password}
+        backendUrl={apiBaseUrlInput}
         onUsernameChange={setUsername}
         onPasswordChange={setPassword}
+        onBackendUrlChange={setApiBaseUrlInput}
+        onSaveBackendUrl={handleSaveApiBaseUrl}
         onSubmit={handleLogin}
       />
     );
@@ -415,6 +531,18 @@ export default function App() {
         </nav>
 
         <div className="sidebar-actions">
+          <label>
+            Backend API URL
+            <input
+              type="url"
+              value={apiBaseUrlInput}
+              onChange={(event) => setApiBaseUrlInput(event.target.value)}
+              placeholder="https://your-backend.up.railway.app"
+            />
+          </label>
+          <button className="secondary-button" type="button" onClick={handleSaveApiBaseUrl}>
+            Save backend URL
+          </button>
           <button className="secondary-button" type="button" onClick={() => void refreshDashboard(false)}>
             Refresh now
           </button>
@@ -466,8 +594,16 @@ export default function App() {
             taskForm={taskForm}
             editingTaskId={editingTaskId}
             saving={taskSaving}
+            imageUploading={taskImageUploading}
             onChange={setTaskForm}
             onSubmit={handleTaskSubmit}
+            onImagesSelected={(fileList) => void handleTaskImagesSelected(fileList)}
+            onRemoveImage={(imageUrl) =>
+              setTaskForm((current) => ({
+                ...current,
+                galleryImages: current.galleryImages.filter((image) => image.url !== imageUrl)
+              }))
+            }
             onCancelEdit={() => {
               setEditingTaskId(null);
               setTaskForm(emptyTaskForm);
@@ -482,6 +618,12 @@ export default function App() {
             selectedUserDetail={selectedUserDetail}
             detailLoading={detailLoading}
             onSelectUser={(userId) => void loadUserDetail(userId)}
+            balanceAdjustAmount={balanceAdjustAmount}
+            balanceAdjustNote={balanceAdjustNote}
+            balanceAdjustSaving={balanceAdjustSaving}
+            onBalanceAdjustAmountChange={setBalanceAdjustAmount}
+            onBalanceAdjustNoteChange={setBalanceAdjustNote}
+            onAdjustBalance={() => void handleAdjustBalance()}
           />
         ) : null}
         {activeTab === "completed" ? <CompletedTasksTab completions={completedTasks} /> : null}

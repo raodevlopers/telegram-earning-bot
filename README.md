@@ -30,9 +30,12 @@ scripts/ PowerShell automation helpers for GitHub, Railway, and Firebase Hosting
 - Auto-register users from Telegram ID
 - Reward users `INR 10` per task by default
 - Reward referrers `INR 5` when invited users complete their first task
-- Minimum withdrawal of `INR 30`
+- Minimum withdrawal of `INR 35`
 - Each task can only be completed once per user
-- Task verification cooldown to reduce instant abuse
+- Three rich task types: Google Maps review, timed website visit, and timed Google search visit
+- Screenshot proof uploads hosted on ImgBB for admin review
+- Browser timer pages that guide users out of Telegram's in-app browser
+- Daily personalized reminder nudges for active users
 - Admin task CRUD, user lookup, referral ledger, and withdrawal approval or rejection
 - Immutable wallet transactions for every balance mutation
 
@@ -43,17 +46,18 @@ scripts/ PowerShell automation helpers for GitHub, Railway, and Firebase Hosting
    `BOT_TOKEN`, `BOT_USERNAME`, `WEBHOOK_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET`
 3. Fill in Firebase Admin service-account values:
    `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
-4. Set `ADMIN_AUTH_EMAIL` to the Firebase Auth admin email you want to use for the dashboard.
-5. Set `ADMIN_ORIGIN` to your Firebase Hosting URL if the admin panel is hosted separately.
-6. Set a long random `SESSION_SECRET`.
-7. Generate an admin password hash for the legacy backend fallback:
+4. Set `IMGBB_API_KEY` so task proof screenshots and admin task images can be uploaded.
+5. Set `ADMIN_AUTH_EMAIL` to the Firebase Auth admin email you want to use for the dashboard.
+6. Set `ADMIN_ORIGIN` to your Firebase Hosting URL if the admin panel is hosted separately.
+7. Set a long random `SESSION_SECRET`.
+8. Generate an admin password hash for the legacy backend fallback:
 
 ```bash
 node -e "const bcrypt=require('bcryptjs'); bcrypt.hash(process.argv[1], 12).then(v=>console.log(v))" "your-admin-password"
 ```
 
-8. Put the hash into `ADMIN_PASSWORD_HASH`.
-9. Create the Firebase Auth admin user and claims:
+9. Put the hash into `ADMIN_PASSWORD_HASH`.
+10. Create the Firebase Auth admin user and claims:
 
 ```powershell
 $env:ADMIN_AUTH_PASSWORD="your-secure-admin-password"
@@ -77,6 +81,7 @@ npm run dev
 Useful commands:
 
 ```bash
+npm run preflight
 npm run typecheck
 npm run test
 npm run build
@@ -120,6 +125,7 @@ Recommended Firestore setup:
 
 - Enable Firestore in Native mode
 - Use the Admin SDK service account from the server only
+- Deploy the included `firestore.rules` and `firestore.indexes.json` so direct client access stays blocked
 - Firebase web config in the React app is safe to expose, but never expose Firebase Admin credentials in the browser
 
 ## Telegram Bot Flow
@@ -127,10 +133,12 @@ Recommended Firestore setup:
 1. User sends `/start`
 2. Bot creates or refreshes the Firestore user record
 3. Dashboard shows balance, tasks, referral state, and withdrawal action
-4. User opens a task, waits for the cooldown, and verifies completion
-5. Balance is credited inside a Firestore transaction
-6. If it was the user's first completed task and they were referred, the referrer gets the referral reward
-7. User can request withdrawal once balance reaches the minimum
+4. User starts a task and opens the hosted task-session page
+5. The session page guides the user through Chrome/browser timing and proof collection
+6. The user uploads a screenshot proof back in Telegram
+7. Balance is credited inside a Firestore transaction once timer and proof requirements are met
+8. If it was the user's first completed task and they were referred, the referrer gets the referral reward
+9. User can request withdrawal once balance reaches the minimum
 
 ## Admin Dashboard
 
@@ -142,11 +150,11 @@ The admin dashboard can run in two modes:
 Available admin capabilities:
 
 - Firebase Auth email and password login
-- Task creation, editing, pausing, and deletion
+- Task creation, editing, pausing, deletion, caption management, and reference-image uploads
 - User balance and risk review
-- Completed task auditing
+- Proof screenshot auditing with direct image links
 - Referral inspection
-- Withdrawal approval and rejection
+- Withdrawal approval and rejection for UPI, PayPal, and Google Play code payouts
 
 ## Deployment
 
@@ -165,6 +173,7 @@ Available admin capabilities:
 2. Run `.\scripts\firebase-hosting-deploy.ps1 -ProjectId hybrid-engineer -ApiBaseUrl https://your-railway-app.up.railway.app`.
 3. Use the returned Hosting URL as `ADMIN_ORIGIN` in the Railway backend.
 4. Sign in with the seeded Firebase Auth admin account from the setup script.
+5. The deploy helper now pushes Hosting plus Firestore rules and indexes together.
 
 ### GitHub Publish
 
@@ -176,6 +185,7 @@ Available admin capabilities:
 - Use a real HTTPS Railway domain before going live
 - Store secrets only in deployment environment variables
 - Restrict Firebase service-account access to the project
+- Run `npm run preflight` before your final deployment
 - Rotate `SESSION_SECRET`, the Firebase Auth admin password, and the fallback admin password hash periodically
 - Monitor structured logs from the Express service
 - Review Firestore quotas and billing for expected traffic

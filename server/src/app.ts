@@ -8,6 +8,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import type { AppServices } from "./types/app-services.js";
 import { createAdminRouter } from "./routes/admin.js";
+import { createPublicRouter } from "./routes/public.js";
 import { createTelegramRouter } from "./routes/telegram.js";
 import { createErrorHandler } from "./middlewares/error-handler.js";
 import { AppError } from "./utils/errors.js";
@@ -48,7 +49,7 @@ export function createApp(services: AppServices) {
       })
     );
   }
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "15mb" }));
   app.use(
     cookieSession({
       name: services.config.admin.cookieName,
@@ -64,6 +65,7 @@ export function createApp(services: AppServices) {
     res.json({ status: "ok" });
   });
 
+  app.use(createPublicRouter(services));
   app.use("/api/admin", createAdminRouter(services));
   app.use("/telegram", createTelegramRouter(services.bot, services.config));
 
